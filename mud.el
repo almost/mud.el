@@ -61,7 +61,7 @@
       (setq mud-host host
             mud-port port)
       (mud-reconnect))
-    (set-buffer server-buffer)))
+    (switch-to-buffer server-buffer)))
 
 
 (defun mud-mode ()
@@ -102,7 +102,7 @@
   ;; TODO: ignore non-command thingies, multiple prompts on a line
   (if (string-match "^\\(> \\)" line)
       (progn
-        (princ (queue-dequeue mud-command-queue))
+        ;;(princ (queue-dequeue mud-command-queue))
         (setq mud-response-accumulator nil))
     (push line mud-response-accumulator)
     (lui-insert line)))
