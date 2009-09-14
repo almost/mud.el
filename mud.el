@@ -21,8 +21,14 @@
         "[\373-\377\C-a\C-x]*"  ;; Telnet codes
         )
   "List of regexps to remove from the incoming stream.")
-                                         
 
+(defvar mud-exits-regexp-list
+  (list "There [a-z ]*exits?: \\([a-z, ]\\)[.]"
+        "\\[\\([a-z,]*\\)\\][.]")
+  "A list of regexps that match the lists of exits for the current room.")
+(defvar mud-exit-split-regexp " *\\(,\\|\\(and\\)\\) *"
+  "Regexp used to split lists of exists. ") 
+                                         
 (defface mud-prompt-face
   '((t (:weight bold :foreground "Black" :background "LightSeaGreen")))
   "The face for the Mud prompt."
@@ -50,6 +56,9 @@
 (defvar mud-filter-data ""
   "")
 (make-variable-buffer-local 'mud-filter-data)
+
+(defvar mud-previous-line "")
+(make-variable-buffer-local 'mud-previous-line)
 
 (defvar mud-line-filter-functions '()
   "An abnormal hook that processes lines comming from the mud.
@@ -83,6 +92,8 @@
        t)
   (set (make-local-variable 'lui-fill-column) 100)
   (set (make-local-variable 'lui-fill-type) nil)
+  (set (make-local-variable 'lui-possible-completions-function)
+       'mud-completions)
   (run-hooks 'mud-mode-hook))
 
 (defun mud-reconnect ()
@@ -102,18 +113,17 @@
     (lui-insert (propertize string 'face 'mud-echo-face))
     (process-send-string mud-server-process (concat string "\n"))))
 
-(defun mud-process-line (line &optional partial)
+(defun mud-process-line (line)
   "Process a new line from the mud server. Buffer will already be set correctly."
   ;; TODO: ignore non-command thingies, multiple prompts on a line
   (let ((fns mud-line-filter-functions)) ;
     (while (and (not (equal line :ignore)) fns)
       (setq line (or (apply (car fns) (list line)) line))
       (setq fns (cdr fns))))
-  (if (not (eq line :ignore))
-      (mud-insert line mud-previous-line-partial))
-  (setq mud-previous-line-partial partial))
-
-
+  (when (not (eq line :ignore))
+      (lui-insert line)
+      (setq mud-previous-line line)))
+  
 (defun mud-server-filter-function (process string)
   ;; Get rid of telnet codes
   ;;(setq string (replace-regexp-in-string "[\373-\377\C-a\C-x]*" "" string))
@@ -142,6 +152,17 @@
 (defun mud-server-sentinel (process state)
   (with-current-buffer (process-buffer process)
     (lui-insert (concat "DISCONNECTED: " state))))
+
+(defun mud-completions (bolp)
+  mud-current-exits)
+
+(defun mud-detect-exits (line)
+  (let ((last-two-lines (concat mud-previous-line line)))
+    (dolist (re mud-exits-regexp-list)
+      (when (string-match re last-two-lines)       
+        (setq mud-current-exits (split-string (match-string 1 last-two-lines) mud-exit-split-regexp))))
+      line))
+(add-hook 'mud-line-filter-functions 'mud-detect-exits) 
 
 ; Maybe more specialized stuff for Discworld mud
 ;; (defun mud-capture-hp (line)
