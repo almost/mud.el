@@ -23,12 +23,22 @@
   "List of regexps to remove from the incoming stream.")
 
 (defvar mud-exits-regexp-list
-  (list "There [a-z ]*exits?: \\([a-z, ]\\)[.]"
+  (list "There [a-z ]*exits?: \\([a-z, ]*\\)[.]"
         "\\[\\([a-z,]*\\)\\][.]")
   "A list of regexps that match the lists of exits for the current room.")
+
 (defvar mud-exit-split-regexp " *\\(,\\|\\(and\\)\\) *"
   "Regexp used to split lists of exists. ") 
-                                         
+
+
+(defvar mud-tell-names-regexp-list
+  '("^You tell \\([a-zA-Z]+\\)"
+    "^You exclaim to \\([a-zA-Z]+\\)"
+    "\\([a-zA-Z]*\\) tells you[:]"
+    "\\([a-zA-Z]*\\) asks you[:]"
+    "\\([a-zA-Z]*\\) exclaims to you[:]")
+  "Regexps used to extract names for tell autocompletion.")
+
 (defface mud-prompt-face
   '((t (:weight bold :foreground "Black" :background "LightSeaGreen")))
   "The face for the Mud prompt."
@@ -60,6 +70,8 @@
 (defvar mud-previous-line "")
 (make-variable-buffer-local 'mud-previous-line)
 
+(defvar mud-tell-names '())
+(make-variable-buffer-local 'mud-tell-names)
 (defvar mud-line-filter-functions '()
   "An abnormal hook that processes lines comming from the mud.
   If a function returns a string then it will replace the line to
@@ -154,7 +166,8 @@
     (lui-insert (concat "DISCONNECTED: " state))))
 
 (defun mud-completions (bolp)
-  mud-current-exits)
+  (append (if bolp mud-current-exits)
+          mud-tell-names))
 
 (defun mud-detect-exits (line)
   (let ((last-two-lines (concat mud-previous-line line)))
@@ -163,6 +176,15 @@
         (setq mud-current-exits (split-string (match-string 1 last-two-lines) mud-exit-split-regexp))))
       line))
 (add-hook 'mud-line-filter-functions 'mud-detect-exits) 
+
+(defun mud-remember-tell-names (line)
+  "Remembers names of people who tell you stuff and who you tell stuff to, used for autocompletion."
+  (dolist (re mud-tell-names-regexp-list)
+    (when (string-match re line)
+      (pushnew (match-string 1 line) mud-tell-names)))
+  line)
+(add-hook 'mud-line-filter-functions 'mud-remember-tell-names) 
+      
 
 ; Maybe more specialized stuff for Discworld mud
 ;; (defun mud-capture-hp (line)
