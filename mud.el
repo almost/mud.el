@@ -3,6 +3,8 @@
 ;; May not work for you, this is just me experimenting at the moment
 ;; I've only tested it on discworld.atuin.net
 
+
+
 (require 'lui)
 (require 'ansi-color)
 (require 'queue-f)
@@ -30,7 +32,6 @@
 (defvar mud-exit-split-regexp " *\\(,\\|\\(and\\)\\) *"
   "Regexp used to split lists of exists. ") 
 
-
 (defvar mud-tell-names-regexp-list
   '("^You tell \\([a-zA-Z]+\\)"
     "^You exclaim to \\([a-zA-Z]+\\)"
@@ -49,6 +50,10 @@
   "The face for the echoed commands."
   :group 'mud)
 
+(defvar mud-mode-map
+  (let ((map (make-sparse-keymap)))
+    map)
+  "The key map for mud buffers.")
 
 ;; vars
 (defvar mud-host nil
@@ -72,6 +77,10 @@
 
 (defvar mud-tell-names '())
 (make-variable-buffer-local 'mud-tell-names)
+
+(defvar mud-matching-buffer-list '())
+(make-variable-buffer-local 'mud-matching-buffer-list)
+
 (defvar mud-line-filter-functions '()
   "An abnormal hook that processes lines comming from the mud.
   If a function returns a string then it will replace the line to
@@ -80,6 +89,7 @@
   and to not be displayed. ")
 
 (defun mud (host port)
+  "Connect to a MUD on the given host and port."
   (interactive "sHost: \nsPort: ")
   (when (equal port "")
     (setq port "23"))
@@ -93,6 +103,7 @@
     (switch-to-buffer server-buffer)))
 
 (defun mud-mode ()
+  "Major mode for playing MUDs."
   (lui-mode)
   (setq major-mode 'mud-mode
         mode-name "MUD"
@@ -106,6 +117,9 @@
   (set (make-local-variable 'lui-fill-type) nil)
   (set (make-local-variable 'lui-possible-completions-function)
        'mud-completions)
+  (use-local-map mud-mode-map)
+  (set-keymap-parent mud-mode-map
+                     lui-mode-map)
   (run-hooks 'mud-mode-hook))
 
 (defun mud-reconnect ()
@@ -169,12 +183,67 @@
   (append (if bolp mud-current-exits)
           mud-tell-names))
 
+(defun mud-new-matching-buffer (name regexp-list &optional default-command follow-on-line-regexp)
+  "Open up a new buffer to display only lines that match one of
+  the given regexps. Anything entered at the prompt in this new
+  buffer will be executed on the server after the string command
+  is used to format it.
+
+  follow-on-line-regexp is a regexp to match lines following a
+  matched line that should also be included, it defaults to lines
+  starting with 3 or more spaces (it's assuming that indented
+  lines are just word wrapped parts of the previous one)
+ 
+  Example:
+
+  (mud-new-matching-buffer \"tells\" '(\".*tells you.*\" \".*asks you.*\" \".*exlaims at you.*\") \"tell \")
+  "
+  (setq follow-on-line-regexp (or follow-on-line-regexp "^   +[^ ]"))
+  (let* ((name (format "%s@%s" name (buffer-name)))
+         (server-buffer (current-buffer))
+         (buffer (generate-new-buffer name)))
+    (pushnew buffer mud-matching-buffer-list )
+    (with-current-buffer buffer
+      (mud-mode)
+      (setq lui-input-function 'mud-matching-buffer-input)
+      (set (make-variable-buffer-local 'mud-server-buffer) server-buffer)
+      (set (make-variable-buffer-local 'mud-default-command) default-command)
+      (set (make-variable-buffer-local 'mud-previous-line-matched) nil)
+      (set (make-variable-buffer-local 'mud-follow-on-line-regexp) follow-on-line-regexp)
+      (set (make-variable-buffer-local 'mud-regexp-list) regexp-list)
+      (insert default-command))))
+
+(defun mud-matching-buffer-input (input)
+  (with-current-buffer mud-server-buffer
+    (mud-input input))
+  (insert mud-default-command)) 
+;; line filter functions
+
+(defun mud-send-to-matching-buffers (line)
+  (dolist (buffer mud-matching-buffer-list)
+    (if (buffer-live-p buffer)
+        (save-window-excursion
+          (set-buffer buffer)
+          (if (and mud-previous-line-matched (string-match mud-follow-on-line-regexp line))
+              (lui-insert line)
+            (setq mud-previous-line-matched nil)
+            (let ((regexps mud-regexp-list))
+              (while regexps
+                (if (string-match (car regexps) line)
+                    (progn
+                      (setq mud-previous-line-matched t)
+                      (lui-insert line)
+                      (setq regexps nil))
+                  (setq regexps (cdr regexps)))))))))
+  line)
+(add-hook 'mud-line-filter-functions 'mud-send-to-matching-buffers)
+
 (defun mud-detect-exits (line)
-  (let ((last-two-lines (concat mud-previous-line line)))
+  (let ((last-two-lines (replace-regexp-in-string " +" " " (concat mud-previous-line line))))
     (dolist (re mud-exits-regexp-list)
-      (when (string-match re last-two-lines)       
-        (setq mud-current-exits (split-string (match-string 1 last-two-lines) mud-exit-split-regexp))))
-      line))
+      (when (string-match re last-two-lines)
+        (setq mud-current-exits (split-string (match-string 1 last-two-lines) mud-exit-split-regexp)))))
+      line)
 (add-hook 'mud-line-filter-functions 'mud-detect-exits) 
 
 (defun mud-remember-tell-names (line)
