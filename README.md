@@ -1,1 +1,1 @@
-Requires lui.el whic ships with (Circ)[http://www.emacswiki.org/emacs/Circe]
+Requires lui.el whic ships with [Circ](http://www.emacswiki.org/emacs/Circe)
